@@ -1,5 +1,6 @@
 package com.zjh1934.mausbot.local;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.IBinder;
@@ -86,7 +87,7 @@ public final class ShizukuKit {
         }
     }
 
-    /** Shizuku 是否以 root(UID 0) 身份运行——root 模式可全自动准备环境。 */
+    /** Shizuku 是否以 root(UID 0) 身份运行——仅用于状态灯显示，不代表能免掉首次准备。 */
     public static boolean isRoot() {
         try { return running() && Shizuku.getUid() == 0; } catch (Throwable t) { return false; }
     }

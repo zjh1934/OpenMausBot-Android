@@ -597,7 +597,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (!ShizukuKit.granted()) {
-            ShizukuKit.request();   // 结果走 ShizukuKit 的 listener -> onShizukuChanged
+            ShizukuKit.request(this);   // 结果走 ShizukuKit 的 listener -> onShizukuChanged
             return;
         }
         onShizukuChanged();
@@ -700,19 +700,43 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------------ 一次性命令 / 跳转
 
-    /** 把内置 bootstrap.sh 编码成一条自包含命令，用户粘贴回车即可，不依赖网络下载脚本。 */
+    /**
+     * 把内置 bootstrap.sh 编码成一条自包含命令，用户粘贴回车即可，不依赖网络下载脚本。
+     * 先 gzip 再 base64，命令从约 27KB 压到约 14KB，避免部分输入法 / Termux 截断长粘贴。
+     * gzip 是 Termux 的 ESSENTIAL 基础包，必定存在；若压缩异常则退化为未压缩，命令仍自洽。
+     */
     private String buildBootstrapCmd() {
         try (InputStream is = getAssets().open(BOOTSTRAP_ASSET);
              ByteArrayOutputStream bo = new ByteArrayOutputStream()) {
             byte[] buf = new byte[8192];
             int n;
             while ((n = is.read(buf)) > 0) bo.write(buf, 0, n);
-            String b64 = Base64.encodeToString(bo.toByteArray(), Base64.NO_WRAP);
+            byte[] raw = bo.toByteArray();
             // base64 字符集不含单引号与 %，用 printf 包裹绝对安全。
+            byte[] gz = gzipOrNull(raw);
+            if (gz != null) {
+                String b64 = Base64.encodeToString(gz, Base64.NO_WRAP);
+                return "printf %s '" + b64 + "' | base64 -d | gzip -dc | bash";
+            }
+            String b64 = Base64.encodeToString(raw, Base64.NO_WRAP);
             return "printf %s '" + b64 + "' | base64 -d | bash";
         } catch (Exception e) {
             Log.w(TAG, "读取内置 bootstrap.sh 失败", e);
             return "";
+        }
+    }
+
+    /** 返回 null 表示压缩失败，由调用方退化为未压缩命令。 */
+    private static byte[] gzipOrNull(byte[] src) {
+        try {
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            java.util.zip.GZIPOutputStream g = new java.util.zip.GZIPOutputStream(bos);
+            g.write(src);
+            g.close();
+            return bos.toByteArray();
+        } catch (Exception e) {
+            Log.w(TAG, "gzip 失败，改用未压缩命令", e);
+            return null;
         }
     }
 
@@ -894,10 +918,10 @@ public class MainActivity extends Activity {
 
         /** 粘贴卡片主按钮：复制自包含命令 + 打开 Termux。 */
         @JavascriptInterface
-        public void copyAndOpenTermux() { ui.post(() -> copyBootstrap(true)); }
+        public void copyAndOpenTermux() { ui.post(() -> MainActivity.this.copyBootstrap(true)); }
 
         @JavascriptInterface
-        public void copyBootstrap() { ui.post(() -> copyBootstrap(false)); }
+        public void copyBootstrap() { ui.post(() -> MainActivity.this.copyBootstrap(false)); }
 
         @JavascriptInterface
         public void openTermux() { ui.post(MainActivity.this::openTermuxApp); }

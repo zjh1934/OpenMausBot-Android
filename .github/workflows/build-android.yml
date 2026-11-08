@@ -52,8 +52,24 @@ jobs:
       - name: 赋予 gradlew 执行权限
         run: chmod +x ./gradlew
 
-      - name: 编译 debug APK
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
+      # services.gradle.org 偶发 504（下载 Gradle 发行版），重试并换镜像兜底，
+      # 避免一次瞬时网络故障就导致整个出包失败。
+      - name: 编译 debug APK（带下载重试）
+        run: |
+          set -e
+          build() { ./gradlew assembleDebug --stacktrace --no-daemon; }
+          if ! build; then
+            echo "首次编译失败（多为 Gradle 发行版下载瞬时故障），清理 wrapper 缓存后重试"
+            rm -rf "$HOME/.gradle/wrapper/dists/gradle-8.2-bin"
+            sleep 5
+            if ! build; then
+              echo "再次失败，改用腾讯云镜像 distributionUrl 兜底"
+              sed -i 's#https://services.gradle.org/distributions/#https://mirrors.cloud.tencent.com/gradle/#' gradle/wrapper/gradle-wrapper.properties
+              rm -rf "$HOME/.gradle/wrapper/dists/gradle-8.2-bin"
+              cat gradle/wrapper/gradle-wrapper.properties
+              build
+            fi
+          fi
 
       - name: 校验产物（签名 + Manifest + 可安装性）
         run: |

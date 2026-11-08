@@ -31,12 +31,19 @@ echo 'ewogICJf5oCO5LmI5aGrIjogIuaKiuacrOaWh+S7tuWkjeWItuaIkCB+Ly5vcGVubWF1c2JvdC
 [ -f "$BASE/config.json" ] || cp "$BASE/config.template.json" "$BASE/config.json"
 chmod 600 "$BASE/config.json" 2>/dev/null || true
 chmod +x "$BASE/start-omb.sh" 2>/dev/null || true
+# 定位 dist-server 做第二道保险补丁。$PREFIX 在 Termux 登录 shell 里必有，
+# 但用户可能粘贴到非登录 shell；set -u 下直接引用会中断整个脚本，故一律用默认值兜底。
+# 这一步是可选增强（运行时 shim 已足够），任何失败都不得阻断后面的启动。
 DIST=""
-for c in "$PREFIX/lib/node_modules/openmausbot/dist-server" "$(npm root -g 2>/dev/null)/openmausbot/dist-server"; do
+for c in "${PREFIX:-}/lib/node_modules/openmausbot/dist-server" \
+         "$(npm root -g 2>/dev/null || true)/openmausbot/dist-server" \
+         "$HOME/../usr/lib/node_modules/openmausbot/dist-server"; do
   [ -d "$c" ] && DIST="$c" && break
 done
-if [ -n "$DIST" ]; then
+if [ -n "$DIST" ] && [ -f "$BASE/patch-dist.mjs" ]; then
   node "$BASE/patch-dist.mjs" "$DIST" >/dev/null 2>&1 && echo "补丁已应用" || echo "补丁跳过（运行时兼容层已足够）"
+else
+  echo "补丁跳过（未定位到 dist-server；运行时兼容层已足够）"
 fi
 
 say "[5/5] 让配置生效并启动服务"
