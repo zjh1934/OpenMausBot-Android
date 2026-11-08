@@ -67,7 +67,7 @@ jobs:
           "$AAPT" dump badging "$APK" | grep -E 'package:|launchable-activity:|application-label:|sdkVersion:|targetSdkVersion:|uses-permission:' | head -20
           echo "---- 签名校验 ----"
           "$APKSIGNER" verify --verbose "$APK" | head -12
-          echo "APK_VERIFY_OK" >> "$GITHUB_ENV"
+          echo "APK_VERIFY_OK=1" >> "$GITHUB_ENV"
 
       - name: 固定产物名
         run: |
