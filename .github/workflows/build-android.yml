@@ -1,0 +1,88 @@
+name: 构建安卓 APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: '是否同时创建一个带 APK 的 Release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 装 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 确认 SDK 组件
+        run: |
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/build-tools/34.0.0/aapt2" "$ANDROID_HOME/build-tools/34.0.0/apksigner"
+
+      - name: Gradle 缓存
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: 赋予 gradlew 执行权限
+        run: chmod +x ./gradlew
+
+      - name: 编译 debug APK
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
+
+      - name: 校验产物（签名 + Manifest + 可安装性）
+        run: |
+          set -e
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          echo "APK=$APK  大小=$(du -h "$APK" | cut -f1)"
+          test -s "$APK"
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
+          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          echo "---- badging ----"
+          "$AAPT" dump badging "$APK" | grep -E 'package:|launchable-activity:|application-label:|sdkVersion:|targetSdkVersion:|uses-permission:' | head -20
+          echo "---- 签名校验 ----"
+          "$APKSIGNER" verify --verbose "$APK" | head -12
+          echo "APK_VERIFY_OK" >> "$GITHUB_ENV"
+
+      - name: 固定产物名
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/*.apk out/MausBot-本地版-debug.apk
+          ls -la out/
+
+      - name: 上传 APK 到 Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MausBot-本地版-APK
+          path: out/*.apk
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: 创建 Release（可选）
+        if: ${{ github.event.inputs.release == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: MausBot 本地版 build ${{ github.run_number }}
+          files: out/*.apk
+          body: |
+            自动构建的可安装 debug APK。
+            手机上需先按仓库 termux/install.sh 完成一次性安装，再点开本 APK。
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

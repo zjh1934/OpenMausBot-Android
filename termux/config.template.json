@@ -1,0 +1,28 @@
+{
+  "_怎么填": "把本文件复制成 ~/.openmausbot/config.json，在手机本地改。改完要重启服务。所有密钥只留在本机，绝不写进 GitHub 仓库。",
+  "_重要提示": "上游 README 明确写了「API connections currently support chat only」。也就是说走 openai-compat 接进来的模型（无论本地还是云端）当前主要是纯聊天，审批卡/MCP 绘图这类工具调用可能用不上。请以 App 里实际表现为准，不要假定完整保留。",
+
+  "instances": {
+    "local-4b": {
+      "driver": "openai-compat",
+      "displayName": "本机 4B 小模型",
+      "config": {
+        "url": "http://127.0.0.1:8080/v1",
+        "model": "填模型 id：先起 llama-server，再用 curl http://127.0.0.1:8080/v1/models 查",
+        "tools": false
+      }
+    },
+    "cloud-strong": {
+      "driver": "openai-compat",
+      "displayName": "云端强脑（兜底）",
+      "environment": {
+        "CLOUD_API_KEY": "在手机本地填云端 API Key，不要提交到任何仓库"
+      },
+      "config": {
+        "url": "https://填厂商地址/v1",
+        "apiKeyEnv": "CLOUD_API_KEY",
+        "model": "填云端模型名"
+      }
+    }
+  }
+}

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MausBot 本地版</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#10131A;color:#E8ECF4;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+       padding:28px 20px 40px;max-width:560px;margin:0 auto;line-height:1.7}
+  h1{font-size:22px;margin:6px 0 2px;letter-spacing:.5px}
+  .sub{color:#8B94A7;font-size:13px;margin-bottom:26px}
+  .card{background:#1A1F2B;border:1px solid #2A3242;border-radius:16px;padding:20px;margin-bottom:16px}
+  .status{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600}
+  .dot{width:11px;height:11px;border-radius:50%;background:#F0A020;flex:none;box-shadow:0 0 0 4px rgba(240,160,32,.13)}
+  .dot.ok{background:#37C978;box-shadow:0 0 0 4px rgba(55,201,120,.13)}
+  .dot.err{background:#E8564B;box-shadow:0 0 0 4px rgba(232,86,75,.13)}
+  .hint{color:#9AA4B8;font-size:13px;margin:12px 0 0}
+  button{width:100%;border:0;border-radius:12px;padding:15px;font-size:16px;font-weight:600;
+         background:#3B5BDB;color:#fff;margin-top:12px;cursor:pointer}
+  button:active{transform:scale(.985)}
+  button.ghost{background:#252C3B;color:#CFD6E4;border:1px solid #333D50;font-weight:500;font-size:14px;padding:12px}
+  .row{display:flex;gap:10px;margin-top:12px}
+  .row button{margin-top:0}
+  .row input{flex:1;min-width:0;background:#0E1119;border:1px solid #333D50;border-radius:10px;
+             color:#E8ECF4;padding:0 12px;font-size:14px;outline:none}
+  details{margin-top:18px;border-top:1px solid #262E3D;padding-top:14px}
+  summary{color:#8B94A7;font-size:13px;cursor:pointer;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸ ";color:#5A6B85}
+  details[open] summary::before{content:"▾ "}
+  .steps{color:#A8B2C6;font-size:13px;padding-left:18px;margin:14px 0 0}
+  .steps li{margin:9px 0}
+  code{background:#0E1119;border:1px solid #2A3242;border-radius:6px;padding:2px 6px;
+       font-size:12px;color:#9EC1FF;word-break:break-all}
+  .foot{color:#5F6879;font-size:11px;text-align:center;margin-top:26px;line-height:1.8}
+</style>
+</head>
+<body>
+  <h1>MausBot 本地版</h1>
+  <div class="sub">手机上直接用的多智能体聊天客户端 · 数据只留在本机</div>
+
+  <div class="card">
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">正在检测本地服务…</span></div>
+    <p class="hint" id="hintText">第一次打开需要先启动一次后台服务。点下面的按钮，等几秒就会自动进入聊天界面。</p>
+    <button id="btnStart" onclick="MausBot.startService()">一键启动并进入</button>
+    <div class="row">
+      <button class="ghost" onclick="MausBot.recheck()">重新检测</button>
+      <button class="ghost" onclick="MausBot.copyCommand()">复制启动命令</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="font-size:14px;font-weight:600;margin-bottom:4px">服务端口</div>
+    <div class="hint" style="margin:0 0 10px">默认 8799，一般不用改。若你在 Termux 里用了别的端口，在这里同步修改。</div>
+    <div class="row">
+      <input id="portInput" type="number" inputmode="numeric" value="8799">
+      <button class="ghost" style="flex:none;width:96px" onclick="savePort()">保存并重连</button>
+    </div>
+  </div>
+
+  <details>
+    <summary>启动不了？看这里（只需设置一次）</summary>
+    <ol class="steps">
+      <li>确认手机装的是 <b>GitHub / F-Droid 版 Termux</b>，不是已停更的 Google Play 版。</li>
+      <li>在 Termux 里执行过一次安装脚本 <code>sh install.sh</code>（本项目的 termux 目录里有）。它会装好 Node、openmausbot 和安卓专用补丁。</li>
+      <li>允许本 App 调用 Termux：在 Termux 里执行 <code>echo 'allow-external-apps = true' &gt;&gt; ~/.termux/termux.properties</code>，然后彻底关掉 Termux 再重开一次。</li>
+      <li>如果仍不行，点上面的「复制启动命令」，自己打开 Termux 粘贴回车，再回到这里点「重新检测」。</li>
+      <li>后台保活：锁住 Termux 的最近任务卡片、把 Termux 省电策略设为「无限制」、允许自启动；长时间使用建议插电。</li>
+    </ol>
+    <p class="hint">所有服务只监听 127.0.0.1（手机本机），不会连到公网，也不需要联网。</p>
+  </details>
+
+  <div class="foot">
+    本应用是 OpenMausBot 的非官方安卓外壳 · 上游项目 Apache-2.0<br>
+    界面由手机本机的 OpenMausBot 服务提供
+  </div>
+
+<script>
+function ui(state, text, hint){
+  var d=document.getElementById('dot');
+  d.className='dot'+(state==='ok'?' ok':state==='err'?' err':'');
+  document.getElementById('statusText').textContent=text;
+  if(hint!==undefined) document.getElementById('hintText').textContent=hint;
+}
+function setBusy(b){
+  var btn=document.getElementById('btnStart');
+  btn.disabled=b; btn.style.opacity=b?'.6':'1';
+  btn.textContent=b?'正在启动，请稍候…':'一键启动并进入';
+}
+function setPort(p){ document.getElementById('portInput').value=p; }
+function savePort(){
+  var p=(document.getElementById('portInput').value||'8799').trim();
+  if(MausBot && MausBot.setPort){ MausBot.setPort(p); }
+}
+function setState(s){ ui(s.state,s.text,s.hint); }
+// Android 侧通过 evaluateJavascript 调用 setState / setBusy / setPort
+</script>
+</body>
+</html>

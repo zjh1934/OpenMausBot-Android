@@ -1,0 +1,20 @@
+MausBot 本地版 (MausBot Local for Android)
+==========================================
+
+本仓库是 OpenMausBot 的非官方安卓适配项目。
+
+上游项目：OpenMausBot — https://github.com/milind-soni/OpenMausBot
+上游版权：Copyright (c) milind-soni 及 OpenMausBot 贡献者
+上游许可：Apache License 2.0
+
+本仓库不包含 OpenMausBot 的源码副本。OpenMausBot 本体由最终用户在自己的
+设备上通过官方 npm 包安装；本仓库仅提供：
+  - 一个 Android WebView 壳工程（app/）
+  - 适配 Android 平台限制的运行时补丁与 Termux 胶水（termux/）
+  - GitHub Actions 构建配置与文档
+
+上游仓库中的 enterprise/ 目录另有许可，本项目不打包、不分发、不引用其中任何代码。
+
+"OpenMausBot" / "MausBot" 名称归原作者所有。本项目与上游作者无隶属或背书关系。
+
+本仓库自身的壳代码与补丁同样以 Apache License 2.0 发布，见 LICENSE。

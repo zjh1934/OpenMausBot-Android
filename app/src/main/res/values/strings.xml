@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MausBot 本地版</string>
+    <string name="keepalive_channel_name">本地服务保活</string>
+    <string name="keepalive_channel_desc">保持本地会话在后台运行</string>
+    <string name="keepalive_title">MausBot 正在运行</string>
+    <string name="keepalive_text">点开即可返回聊天界面</string>
+</resources>
