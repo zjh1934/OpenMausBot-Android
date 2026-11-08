@@ -20,7 +20,9 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.util.Base64;
 import android.util.Log;
 import android.view.Gravity;
@@ -44,8 +46,12 @@ import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -53,15 +59,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
- * MausBot 本地版外壳。
+ * MausBot 本地版外壳（第二版 · 产品级首启引导）。
  *
- * 界面完全由手机本机 127.0.0.1:&lt;port&gt; 上的 OpenMausBot 服务提供，
- * 本类只负责：探测服务、在没起来时显示引导页、一键拉起 Termux 里的服务、
- * 以及把 WebView 在 Android 上需要的能力补齐（文件选择、下载、权限、返回键）。
+ * 界面完全由手机本机 127.0.0.1:&lt;port&gt; 上的 OpenMausBot 服务提供；服务未就绪时
+ * 显示内置的产品级引导页（guide.html）：4 步清单 + 状态灯 + 一键授权，全程不出现代码。
+ *
+ * 设计要点（回应用户「这是给人用的，不是给人调试的」）：
+ *  - 权限一律走系统授权框或 Shizuku 自动授权，不让用户翻设置页、不敲命令；
+ *  - 借鉴 Shizuku 系「AI 操控手机」开源项目的引导范式：分步、状态灯、
+ *    返回自动复检、全绿自动进入；
+ *  - 首次运行环境准备受安卓平台限制，最少要在 Termux 里粘贴一次自包含命令：
+ *    App 一键复制 + 打开 Termux，用户长按粘贴 + 回车即可；命令对用户完全不可见。
+ *  - 一旦服务成功起来过，之后每次打开自动拉起，不再出现任何设置。
  *
  * 所有网络访问都指向手机本机回环，不访问公网（见 network_security_config.xml）。
  */
@@ -70,14 +82,20 @@ public class MainActivity extends Activity {
     private static final String TAG = "MausBotLocal";
     private static final String PREF = "mausbot_pref";
     private static final String KEY_PORT = "port";
+    private static final String KEY_SKIP_SHIZUKU = "skip_shizuku";
+    private static final String KEY_SKIP_BATTERY = "skip_battery";
+    private static final String KEY_EVER_READY = "ever_ready";
     private static final String DEFAULT_PORT = "8799";
+
     private static final String GUIDE_URL = "file:///android_asset/guide.html";
+    private static final String BOOTSTRAP_ASSET = "bootstrap.sh";
     private static final String TERMUX_HOME = "/data/data/com.termux/files/home";
     private static final String TERMUX_SCRIPT = TERMUX_HOME + "/.openmausbot/start-omb.sh";
-    private static final String MANUAL_CMD = "sh " + TERMUX_SCRIPT;
+    private static final String PERM_RUN_COMMAND = "com.termux.permission.RUN_COMMAND";
 
     private static final int REQ_FILE = 1001;
     private static final int REQ_PERM = 1002;
+    private static final int REQ_MEDIA = 1003;
 
     private WebView web;
     private ProgressBar progress;
@@ -86,11 +104,16 @@ public class MainActivity extends Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService pool = Executors.newFixedThreadPool(2);
-    private final AtomicBoolean probing = new AtomicBoolean(false);
 
     private String port = DEFAULT_PORT;
-    private int pollLeft = 0;
-    private boolean showingGuide = true;
+    /** 完整的一次性自包含命令（base64 内嵌脚本），只在 Java 侧持有，从不展示给用户。 */
+    private String fullBootstrapCmd = "";
+
+    /** 服务是否就绪（health 通）。由后台探测更新，getStatus() 只读缓存，绝不做同步网络请求。 */
+    private volatile boolean serviceUp = false;
+    /** 引导页是否正在「忙」。 */
+    private volatile boolean busyFlag = false;
+    private volatile boolean showingGuide = true;
 
     private String baseUrl() { return "http://127.0.0.1:" + port + "/"; }
     private String healthUrl() { return baseUrl() + "api/health"; }
@@ -104,46 +127,38 @@ public class MainActivity extends Activity {
         port = prefs.getString(KEY_PORT, DEFAULT_PORT);
         if (port == null || port.isEmpty()) port = DEFAULT_PORT;
 
+        fullBootstrapCmd = buildBootstrapCmd();
+
         buildUi();
         setupWebView();
 
-        // 先显示引导页，避免白屏；后台探测服务是否已在本机运行。
-        showGuide("", "正在检测本地服务…", "第一次打开需要启动一次后台服务，稍等几秒会自动进入。");
-        probeOnce(ok -> {
-            if (ok) {
-                loadApp();
-            } else if (!termuxPermissionGranted()) {
-                // Termux 的 RUN_COMMAND 权限必须由用户在系统设置里手动授予一次。
-                setGuideState("err", "需要先给一次权限",
-                        "请点「去开启权限」，在「其他权限」里打开「在 Termux 环境中运行命令」，然后返回本页。");
-            } else {
-                // 点开图标即自动尝试拉起 Termux 服务，用户无需输入任何命令。
-                boolean launched = launchTermux();
-                if (launched) {
-                    setBusy(true);
-                    setGuideState("", "正在自动启动本地服务…",
-                            "首次使用需先在 Termux 里运行一次安装脚本；若长时间无反应，请展开下方说明。");
-                    startPolling(30);
-                } else {
-                    setGuideState("err", "无法自动启动 Termux",
-                            "请点「复制启动命令」，打开 Termux 粘贴回车，再回来点「重新检测」。");
-                }
-            }
-        });
+        // 注册 Shizuku binder / 授权结果监听：连上后自动把 RUN_COMMAND 也授权好并刷新状态灯。
+        ShizukuKit.init(() -> ui.post(this::onShizukuChanged));
+
+        // 立即显示引导页（深色、不白屏），并启动持续探测：服务一起来就自动进入聊天。
+        showGuide();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // 用户从 Termux 手动启动服务后切回来，自动进入，不必再点按钮。
-        if (showingGuide && !probing.get()) {
-            probeOnce(ok -> { if (ok) loadApp(); });
+        // 从系统设置 / 授权框 / Shizuku / Termux 返回：立即复检，状态灯自动打勾。
+        if (showingGuide) {
+            pushRefresh();
+            startGuidePoll();
         }
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        stopGuidePoll();  // 界面不可见时停探测，省电
+    }
+
+    @Override
     protected void onDestroy() {
-        stopPolling();
+        stopGuidePoll();
+        ui.removeCallbacks(pasteFallback);
         pool.shutdownNow();
         if (web != null) {
             web.destroy();
@@ -152,14 +167,22 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        // Shizuku 13.x（v11+）授权结果走 listener，不需要 Activity 转发。
+        // 这里只处理本 App 自己申请的 RUN_COMMAND / 音视频权限，回调后刷新状态灯。
+        pushRefresh();
+    }
+
     // ------------------------------------------------------------------ 界面
 
     private void buildUi() {
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.parseColor("#10131A"));
+        root.setBackgroundColor(Color.parseColor("#0E1420"));
 
         web = new WebView(this);
-        web.setBackgroundColor(Color.parseColor("#10131A"));
+        web.setBackgroundColor(Color.parseColor("#0E1420"));
         root.addView(web, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -190,7 +213,7 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);  // 语音朗读自动播放
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        s.setUserAgentString(s.getUserAgentString() + " MausBotLocal/0.9");
+        s.setUserAgentString(s.getUserAgentString() + " MausBotLocal/2.0");
 
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
@@ -222,7 +245,8 @@ public class MainActivity extends Activity {
                 super.onPageFinished(v, url);
                 if (url == null) return;
                 if (url.startsWith(GUIDE_URL)) {
-                    v.evaluateJavascript("try{setPort(" + jsq(port) + ")}catch(e){}", null);
+                    // 引导页加载完成主动刷新一次，让 4 个状态灯立刻反映真实状态。
+                    v.evaluateJavascript("try{refresh()}catch(e){}", null);
                 } else if (url.startsWith("http://127.0.0.1")) {
                     v.evaluateJavascript(BLOB_BRIDGE_JS, null);
                 }
@@ -232,8 +256,10 @@ public class MainActivity extends Activity {
             public void onReceivedError(WebView v, WebResourceRequest req, WebResourceError err) {
                 super.onReceivedError(v, req, err);
                 if (req.isForMainFrame() && !showingGuide) {
-                    ui.post(() -> showGuide("err", "连接中断",
-                            "本地服务可能已停止，点「一键启动」重新拉起。"));
+                    ui.post(() -> {
+                        showGuide();
+                        ui.postDelayed(() -> pushNotice("连接中断，点「一键启动」重新拉起即可"), 450);
+                    });
                 }
             }
         });
@@ -357,7 +383,7 @@ public class MainActivity extends Activity {
         return super.onKeyDown(keyCode, event);
     }
 
-    // ------------------------------------------------------------------ 服务探测 / 拉起
+    // ------------------------------------------------------------------ 服务探测
 
     private void probeOnce(Consumer<Boolean> cb) {
         pool.execute(() -> {
@@ -383,6 +409,265 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * 引导页期间的持续探测：服务一起来就自动进入聊天（用户不用点任何按钮）。
+     * 同时周期性刷新状态灯，让「装好并启动」这一格自动打勾。
+     * 只在界面可见时运行（onPause 停止），避免后台空转。
+     */
+    private final Runnable guidePoll = new Runnable() {
+        @Override
+        public void run() {
+            if (!showingGuide) return;
+            probeOnce(ok -> {
+                if (!showingGuide) return;
+                serviceUp = ok;
+                if (ok) {
+                    loadApp();
+                } else {
+                    pushRefresh();
+                    ui.postDelayed(this, 2000);
+                }
+            });
+        }
+    };
+
+    private void startGuidePoll() {
+        stopGuidePoll();
+        ui.post(guidePoll);
+    }
+
+    private void stopGuidePoll() {
+        ui.removeCallbacks(guidePoll);
+    }
+
+    // ------------------------------------------------------------------ 页面切换 / 状态推送
+
+    private void loadApp() {
+        stopGuidePoll();
+        ui.removeCallbacks(pasteFallback);
+        busyFlag = false;
+        serviceUp = true;
+        showingGuide = false;
+        // 记录「环境已就绪」，之后打开一律走全自动拉起，不再提示粘贴。
+        prefs.edit().putBoolean(KEY_EVER_READY, true).apply();
+        if (web != null) web.loadUrl(baseUrl());
+    }
+
+    private void showGuide() {
+        showingGuide = true;
+        if (web != null) web.loadUrl(GUIDE_URL);
+        startGuidePoll();
+    }
+
+    /** 让引导页重新拉取一次状态并渲染（java -> js）。 */
+    private void pushRefresh() {
+        evalJs("try{refresh()}catch(e){}");
+    }
+
+    private void pushNotice(String text) {
+        evalJs("try{setNotice(" + jsq(text) + ")}catch(e){}");
+    }
+
+    private void pushPasteGuide(boolean on) {
+        // cmd 传空：粘贴卡片里绝不显示任何命令，主界面不出现代码。
+        evalJs("try{setPasteGuide(" + on + ",'')}catch(e){}");
+    }
+
+    private void evalJs(String script) {
+        if (web == null || !showingGuide) return;
+        ui.post(() -> {
+            if (web != null) web.evaluateJavascript(script, null);
+        });
+    }
+
+    private static String jsq(String s) {
+        if (s == null) return "''";
+        return "'" + s.replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\n", "\\n")
+                .replace("\r", "") + "'";
+    }
+
+    /** 组装引导页状态对象。getStatus() 在 WebView 的 JS 线程调用，必须同步、快速、无网络。 */
+    private String statusJson() {
+        try {
+            JSONObject s = new JSONObject();
+            s.put("perm", termuxPermissionGranted());
+            s.put("termuxInstalled", termuxInstalled());
+            s.put("shizukuInstalled", ShizukuKit.installed(this));
+            s.put("shizukuRunning", ShizukuKit.running());
+            s.put("shizukuGranted", ShizukuKit.granted());
+            s.put("shizukuSkipped", prefs.getBoolean(KEY_SKIP_SHIZUKU, false));
+            s.put("rootMode", ShizukuKit.isRoot());
+            s.put("battery", ignoringBattery());
+            s.put("batterySkipped", prefs.getBoolean(KEY_SKIP_BATTERY, false));
+            s.put("service", serviceUp);
+            s.put("busy", busyFlag);
+            s.put("port", port);
+            // 高级折叠区只给一句人话；真实命令由 Java 内部持有，从不塞进界面。
+            s.put("bootstrapCmd", "点上方「复制一次性命令」，或主卡片「复制并打开 Termux」");
+            return s.toString();
+        } catch (Exception e) {
+            Log.w(TAG, "statusJson 失败", e);
+            return "{}";
+        }
+    }
+
+    // ------------------------------------------------------------------ 能力检测
+
+    private boolean termuxPermissionGranted() {
+        return checkSelfPermission(PERM_RUN_COMMAND) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean termuxInstalled() {
+        try {
+            getPackageManager().getPackageInfo("com.termux", 0);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean ignoringBattery() {
+        if (Build.VERSION.SDK_INT < 23) return true;
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    // ------------------------------------------------------------------ 引导动作
+
+    /** 第 1 步：允许自动启动。优先让 Shizuku 静默授权，失败才弹系统授权框。 */
+    private void doAllowAutoStart() {
+        if (termuxPermissionGranted()) {
+            pushRefresh();
+            return;
+        }
+        if (!termuxInstalled()) {
+            pushNotice("没检测到 Termux，先装好 Termux 再回来点「允许」");
+            openTermuxApp();
+            return;
+        }
+        tryShizukuAutoGrant(() -> {
+            if (!termuxPermissionGranted()) requestRunCommandPermission();
+        });
+    }
+
+    private void requestRunCommandPermission() {
+        try {
+            requestPermissions(new String[]{ PERM_RUN_COMMAND }, REQ_PERM);
+        } catch (Exception e) {
+            Log.w(TAG, "requestPermissions 失败，回落设置页", e);
+            openAppPermissionSettings();
+        }
+    }
+
+    /** 用 Shizuku 的系统级身份静默授予 RUN_COMMAND，成功后（或失败后）执行 after，全程无损回落。 */
+    private void tryShizukuAutoGrant(Runnable after) {
+        pool.execute(() -> {
+            boolean ok = false;
+            if (ShizukuKit.granted()) {
+                ok = ShizukuKit.grantRuntimePermission(getPackageName(), PERM_RUN_COMMAND);
+            }
+            Log.d(TAG, "Shizuku 自动授权 RUN_COMMAND: " + ok);
+            ui.post(() -> {
+                pushRefresh();
+                if (after != null) after.run();
+            });
+        });
+    }
+
+    /** Shizuku binder / 授权结果变化：连上后自动把第 1 步权限也开好，并刷新状态灯。 */
+    private void onShizukuChanged() {
+        if (ShizukuKit.granted()) {
+            tryShizukuAutoGrant(null);
+        }
+        pushRefresh();
+    }
+
+    /** 第 2 步：连一下 Shizuku。按「未装 / 未启动 / 未授权 / 已授权」四种状态分别处理。 */
+    private void doConnectShizuku() {
+        if (!ShizukuKit.installed(this)) {
+            openShizukuDownload();
+            toast("装好 Shizuku 后回来点「连接」；不想用可以点「跳过」");
+            return;
+        }
+        if (!ShizukuKit.running()) {
+            openShizukuApp();
+            toast("在 Shizuku 里点「启动」，然后回来");
+            return;
+        }
+        if (!ShizukuKit.granted()) {
+            ShizukuKit.request();   // 结果走 ShizukuKit 的 listener -> onShizukuChanged
+            return;
+        }
+        onShizukuChanged();
+    }
+
+    /** 第 3 步：保持后台运行。给本 App 一键加入电池优化白名单（系统弹框，点允许即可）。 */
+    private void doKeepAlive() {
+        if (ignoringBattery()) {
+            pushRefresh();
+            return;
+        }
+        try {
+            Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            i.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(i);
+            toast("选「允许」。也记得把 Termux 的多任务卡片下拉锁定，别被系统清掉");
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+            } catch (Exception e2) {
+                Log.w(TAG, "电池优化设置页打开失败（可忽略）", e2);
+            }
+        }
+    }
+
+    /** 第 4 步：一键启动。首次亮粘贴卡片；老用户全自动拉起 + 超时才回落。 */
+    private void doPrepareAndStart() {
+        if (serviceUp) {
+            loadApp();
+            return;
+        }
+        if (!termuxPermissionGranted()) {
+            // 权限还没给，先补第 1 步，避免用户点了没反应。
+            doAllowAutoStart();
+            pushNotice("先完成第 1 步「允许自动启动」，再点一键启动");
+            return;
+        }
+
+        boolean everReady = prefs.getBoolean(KEY_EVER_READY, false);
+        busyFlag = true;
+        pushRefresh();
+
+        // 尽力拉起 Termux 里的服务。注意：首次 allow-external-apps 未开时，
+        // Termux 会静默拒绝 RUN_COMMAND，startService 不一定抛异常，
+        // 所以不能靠返回值判断成败，一律交给 guidePoll 探测结果。
+        launchTermux();
+
+        if (!everReady) {
+            // 首次：立刻把一次性粘贴卡片亮出来，不让用户干等。
+            busyFlag = false;
+            pushPasteGuide(true);
+            pushNotice("还差最后一次：按上面蓝色卡片，在 Termux 里粘贴一次就好，做完以后全自动");
+            pushRefresh();
+        } else {
+            // 老用户：等 guidePoll 自动进入；20 秒仍没起来才回落显示粘贴卡片。
+            ui.removeCallbacks(pasteFallback);
+            ui.postDelayed(pasteFallback, 20000);
+            pushNotice("正在自动启动服务，请稍候，会自动进入…");
+        }
+    }
+
+    private final Runnable pasteFallback = () -> {
+        if (showingGuide && !serviceUp) {
+            busyFlag = false;
+            pushPasteGuide(true);
+            pushNotice("还没检测到服务：按上面蓝色卡片，在 Termux 里粘贴一次即可");
+            pushRefresh();
+        }
+    };
+
     /** 通过 Termux 的 RUN_COMMAND 服务在本机后台执行启动脚本。 */
     private boolean launchTermux() {
         Intent i = termuxIntent();
@@ -395,7 +680,7 @@ public class MainActivity extends Activity {
                 startForegroundService(i);
                 return true;
             } catch (Exception e2) {
-                Log.w(TAG, "startForegroundService 也失败", e2);
+                Log.w(TAG, "startForegroundService 也失败（无损，交给探测）", e2);
                 return false;
             }
         }
@@ -404,9 +689,6 @@ public class MainActivity extends Activity {
     private Intent termuxIntent() {
         // 常量值已对照 Termux 官方 TermuxConstants.java 校准：
         //   ACTION_RUN_COMMAND = "com.termux.RUN_COMMAND"
-        //   EXTRA_COMMAND_PATH = "com.termux.RUN_COMMAND_PATH"
-        //   EXTRA_WORKDIR      = "com.termux.RUN_COMMAND_WORKDIR"
-        //   EXTRA_BACKGROUND   = "com.termux.RUN_COMMAND_BACKGROUND"
         //   RunCommandService  = "com.termux.app.RunCommandService"
         Intent i = new Intent("com.termux.RUN_COMMAND");
         i.setClassName("com.termux", "com.termux.app.RunCommandService");
@@ -416,91 +698,93 @@ public class MainActivity extends Activity {
         return i;
     }
 
-    /** 权限是否已授予。Termux 的 RUN_COMMAND 是 dangerous 权限，需用户手动开一次。 */
-    private boolean termuxPermissionGranted() {
-        return checkSelfPermission("com.termux.permission.RUN_COMMAND")
-                == PackageManager.PERMISSION_GRANTED;
+    // ------------------------------------------------------------------ 一次性命令 / 跳转
+
+    /** 把内置 bootstrap.sh 编码成一条自包含命令，用户粘贴回车即可，不依赖网络下载脚本。 */
+    private String buildBootstrapCmd() {
+        try (InputStream is = getAssets().open(BOOTSTRAP_ASSET);
+             ByteArrayOutputStream bo = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) bo.write(buf, 0, n);
+            String b64 = Base64.encodeToString(bo.toByteArray(), Base64.NO_WRAP);
+            // base64 字符集不含单引号与 %，用 printf 包裹绝对安全。
+            return "printf %s '" + b64 + "' | base64 -d | bash";
+        } catch (Exception e) {
+            Log.w(TAG, "读取内置 bootstrap.sh 失败", e);
+            return "";
+        }
     }
 
-    /** 打开本 App 的系统权限页，引导用户开启「在 Termux 中运行命令」。 */
+    private void copyBootstrap(boolean openTermux) {
+        if (fullBootstrapCmd.isEmpty()) {
+            toast("准备命令生成失败，请重装本 App");
+            return;
+        }
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        cm.setPrimaryClip(ClipData.newPlainText("MausBot 一次性准备命令", fullBootstrapCmd));
+        if (openTermux) {
+            openTermuxApp();
+            toast("已复制并打开 Termux：在黑色窗口里 长按 → 粘贴 → 回车");
+        } else {
+            toast("已复制，粘贴到 Termux 回车即可");
+        }
+    }
+
+    private void openTermuxApp() {
+        try {
+            Intent i = getPackageManager().getLaunchIntentForPackage("com.termux");
+            if (i == null) throw new IllegalStateException("Termux 未安装");
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            try {
+                Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.termux"));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            } catch (Exception e2) {
+                toast("没找到 Termux，请先安装 Termux（GitHub / F-Droid 版）");
+            }
+        }
+    }
+
+    private void openShizukuApp() {
+        try {
+            Intent i = getPackageManager().getLaunchIntentForPackage(ShizukuKit.PKG);
+            if (i == null) throw new IllegalStateException("Shizuku 未安装");
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            openShizukuDownload();
+        }
+    }
+
+    private void openShizukuDownload() {
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("market://details?id=" + ShizukuKit.PKG));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://github.com/RikkaApps/Shizuku/releases")));
+            } catch (Exception ignored) {}
+        }
+    }
+
     private void openAppPermissionSettings() {
         try {
-            startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     Uri.parse("package:" + getPackageName())));
         } catch (Exception ignored) {}
     }
 
-    private final Runnable pollTick = new Runnable() {
-        @Override
-        public void run() {
-            if (pollLeft-- <= 0) {
-                probing.set(false);
-                setBusy(false);
-                setGuideState("err", "服务还没起来",
-                        "请点「复制启动命令」，打开 Termux 粘贴回车，再回来点「重新检测」。");
-                return;
-            }
-            probeOnce(ok -> {
-                if (ok) {
-                    stopPolling();
-                    loadApp();
-                } else {
-                    ui.postDelayed(this, 1200);
-                }
-            });
-        }
-    };
-
-    private void startPolling(int times) {
-        stopPolling();
-        pollLeft = times;
-        probing.set(true);
-        ui.post(pollTick);
+    private void toast(String s) {
+        Toast.makeText(this, s, Toast.LENGTH_LONG).show();
     }
 
-    private void stopPolling() {
-        ui.removeCallbacks(pollTick);
-        pollLeft = 0;
-        probing.set(false);
-    }
-
-    // ------------------------------------------------------------------ 页面切换
-
-    private void loadApp() {
-        stopPolling();
-        setBusy(false);
-        showingGuide = false;
-        web.loadUrl(baseUrl());
-    }
-
-    private void showGuide(String state, String text, String hint) {
-        showingGuide = true;
-        web.loadUrl(GUIDE_URL);
-        final String st = state, tx = text, hn = hint;
-        ui.postDelayed(() -> setGuideState(st, tx, hn), 260);
-    }
-
-    private void setGuideState(String state, String text, String hint) {
-        if (web == null || !showingGuide) return;
-        String js = "try{setState({state:" + jsq(state) + ",text:" + jsq(text)
-                + ",hint:" + jsq(hint) + "})}catch(e){}";
-        ui.post(() -> web.evaluateJavascript(js, null));
-    }
-
-    private void setBusy(boolean busy) {
-        if (web == null || !showingGuide) return;
-        ui.post(() -> web.evaluateJavascript("try{setBusy(" + busy + ")}catch(e){}", null));
-    }
-
-    private static String jsq(String s) {
-        if (s == null) return "''";
-        return "'" + s.replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\n", "\\n")
-                .replace("\r", "") + "'";
-    }
-
-    // ------------------------------------------------------------------ 下载 / 权限
+    // ------------------------------------------------------------------ 下载 / 媒体权限
 
     private void handleDownload(String url, String contentDisposition, String mimeType) {
         String name = guessFileName(url, contentDisposition);
@@ -554,7 +838,7 @@ public class MainActivity extends Activity {
     private void ensurePermission(String p) {
         if (Build.VERSION.SDK_INT >= 23
                 && checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
-            try { requestPermissions(new String[]{p}, REQ_PERM); } catch (Exception ignored) {}
+            try { requestPermissions(new String[]{p}, REQ_MEDIA); } catch (Exception ignored) {}
         }
     }
 
@@ -562,49 +846,77 @@ public class MainActivity extends Activity {
 
     private class JsBridge {
 
+        /** 引导页状态数据源。返回 JSON 字符串，供 guide.html 的 refresh()/render() 消费。 */
         @JavascriptInterface
-        public void openPermissionSettings() {
-            ui.post(() -> openAppPermissionSettings());
+        public String getStatus() {
+            return statusJson();
         }
 
         @JavascriptInterface
-        public void startService() {
+        public void allowAutoStart() { ui.post(MainActivity.this::doAllowAutoStart); }
+
+        /** Termux 没装时，第 1 步 / 底部大按钮会调这个：引导去装 GitHub / F-Droid 版。 */
+        @JavascriptInterface
+        public void installTermux() {
             ui.post(() -> {
-                if (!termuxPermissionGranted()) {
-                    setGuideState("err", "需要先给一次权限",
-                            "请点「去开启权限」，在「其他权限」里打开「在 Termux 环境中运行命令」，然后返回本页。");
-                    return;
+                try {
+                    Intent i = new Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/termux/termux-app/releases"));
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                } catch (Exception e) {
+                    openTermuxApp();
                 }
-                boolean launched = launchTermux();
-                if (!launched) {
-                    setGuideState("err", "无法自动启动 Termux",
-                            "请点「复制启动命令」，打开 Termux 粘贴回车，再回来点「重新检测」。");
-                    return;
-                }
-                setBusy(true);
-                setGuideState("", "正在启动本地服务…", "请保持在这个页面，几秒后会自动进入。");
-                startPolling(30);
+                toast("装好 Termux（GitHub / F-Droid 版）后回来，会自动打勾");
             });
         }
+
+        @JavascriptInterface
+        public void connectShizuku() { ui.post(MainActivity.this::doConnectShizuku); }
+
+        @JavascriptInterface
+        public void skipShizuku() {
+            prefs.edit().putBoolean(KEY_SKIP_SHIZUKU, true).apply();
+            pushRefresh();
+        }
+
+        @JavascriptInterface
+        public void keepAlive() { ui.post(MainActivity.this::doKeepAlive); }
+
+        @JavascriptInterface
+        public void skipBattery() {
+            prefs.edit().putBoolean(KEY_SKIP_BATTERY, true).apply();
+            pushRefresh();
+        }
+
+        @JavascriptInterface
+        public void prepareAndStart() { ui.post(MainActivity.this::doPrepareAndStart); }
+
+        /** 粘贴卡片主按钮：复制自包含命令 + 打开 Termux。 */
+        @JavascriptInterface
+        public void copyAndOpenTermux() { ui.post(() -> copyBootstrap(true)); }
+
+        @JavascriptInterface
+        public void copyBootstrap() { ui.post(() -> copyBootstrap(false)); }
+
+        @JavascriptInterface
+        public void openTermux() { ui.post(MainActivity.this::openTermuxApp); }
+
+        @JavascriptInterface
+        public void openPermissionSettings() { ui.post(MainActivity.this::openAppPermissionSettings); }
 
         @JavascriptInterface
         public void recheck() {
             ui.post(() -> {
-                setGuideState("", "正在检测…", "");
+                pushNotice("正在检测…");
                 probeOnce(ok -> {
+                    serviceUp = ok;
                     if (ok) loadApp();
-                    else setGuideState("err", "仍未检测到服务",
-                            "请确认 Termux 里的启动命令已经运行，或点「一键启动」重试。");
+                    else {
+                        pushNotice("还没检测到服务，点「一键启动」试试");
+                        pushRefresh();
+                    }
                 });
-            });
-        }
-
-        @JavascriptInterface
-        public void copyCommand() {
-            ui.post(() -> {
-                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(ClipData.newPlainText("启动命令", MANUAL_CMD));
-                Toast.makeText(MainActivity.this, "已复制，打开 Termux 粘贴回车即可", Toast.LENGTH_LONG).show();
             });
         }
 
@@ -621,11 +933,14 @@ public class MainActivity extends Activity {
             ui.post(() -> {
                 port = np;
                 prefs.edit().putString(KEY_PORT, np).apply();
-                Toast.makeText(MainActivity.this, "端口已设为 " + np + "，正在重连", Toast.LENGTH_SHORT).show();
+                toast("端口已设为 " + np + "，正在重连");
                 probeOnce(ok -> {
+                    serviceUp = ok;
                     if (ok) loadApp();
-                    else setGuideState("err", "端口 " + np + " 上没有服务",
-                            "请确认 Termux 里启动时用了相同端口，或改回 8799。");
+                    else {
+                        pushNotice("端口 " + np + " 上没有服务，请确认 Termux 里用了相同端口");
+                        pushRefresh();
+                    }
                 });
             });
         }

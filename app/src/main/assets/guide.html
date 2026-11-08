@@ -3,103 +3,306 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>MausBot 本地版</title>
+<title>设置 MausBot</title>
 <style>
-  :root{color-scheme:dark}
+  :root{color-scheme:dark;
+        --bg:#0E1420;--card:#171F2E;--card2:#1D2739;--line:#2A3648;
+        --tx:#EAF0FA;--sub:#9AA8BD;--dim:#66748A;
+        --blue:#4C7DFF;--blue2:#3A66E0;--green:#34C77B;--orange:#F5A623;--red:#E8564B}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{margin:0;background:#10131A;color:#E8ECF4;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
-       padding:28px 20px 40px;max-width:560px;margin:0 auto;line-height:1.7}
-  h1{font-size:22px;margin:6px 0 2px;letter-spacing:.5px}
-  .sub{color:#8B94A7;font-size:13px;margin-bottom:26px}
-  .card{background:#1A1F2B;border:1px solid #2A3242;border-radius:16px;padding:20px;margin-bottom:16px}
-  .status{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600}
-  .dot{width:11px;height:11px;border-radius:50%;background:#F0A020;flex:none;box-shadow:0 0 0 4px rgba(240,160,32,.13)}
-  .dot.ok{background:#37C978;box-shadow:0 0 0 4px rgba(55,201,120,.13)}
-  .dot.err{background:#E8564B;box-shadow:0 0 0 4px rgba(232,86,75,.13)}
-  .hint{color:#9AA4B8;font-size:13px;margin:12px 0 0}
-  button{width:100%;border:0;border-radius:12px;padding:15px;font-size:16px;font-weight:600;
-         background:#3B5BDB;color:#fff;margin-top:12px;cursor:pointer}
-  button:active{transform:scale(.985)}
-  button.ghost{background:#252C3B;color:#CFD6E4;border:1px solid #333D50;font-weight:500;font-size:14px;padding:12px}
-  .row{display:flex;gap:10px;margin-top:12px}
-  .row button{margin-top:0}
-  .row input{flex:1;min-width:0;background:#0E1119;border:1px solid #333D50;border-radius:10px;
-             color:#E8ECF4;padding:0 12px;font-size:14px;outline:none}
-  details{margin-top:18px;border-top:1px solid #262E3D;padding-top:14px}
-  summary{color:#8B94A7;font-size:13px;cursor:pointer;list-style:none}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--tx)}
+  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+       line-height:1.65;padding:0 18px calc(34px + env(safe-area-inset-bottom));max-width:520px;margin:0 auto}
+  .hero{padding:30px 4px 8px}
+  .logo{width:52px;height:52px;border-radius:15px;background:linear-gradient(145deg,#5B8BFF,#3A5FD9);
+        display:flex;align-items:center;justify-content:center;font-size:26px;margin-bottom:16px;
+        box-shadow:0 8px 26px rgba(76,125,255,.32)}
+  h1{font-size:23px;margin:0 0 6px;letter-spacing:.3px}
+  .lead{color:var(--sub);font-size:14px;margin:0}
+  .progress-wrap{margin:22px 2px 8px}
+  .progress-top{display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub);margin-bottom:8px}
+  .bar{height:7px;background:#2A3A55;border-radius:99px;overflow:hidden}
+  .bar > i{display:block;height:100%;width:0;border-radius:99px;
+           background:linear-gradient(90deg,#4C7DFF,#34C77B);transition:width .45s cubic-bezier(.4,0,.2,1)}
+  .list{margin-top:14px}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:18px;
+        padding:16px 16px 15px;margin-bottom:12px;transition:border-color .3s,background .3s}
+  .step.active{border-color:#3C5AA8;background:var(--card2)}
+  .step.done{opacity:.72}
+  .row{display:flex;align-items:flex-start;gap:13px}
+  .dot{width:26px;height:26px;border-radius:50%;flex:none;margin-top:1px;
+       display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;
+       background:#2A3A55;color:#9FB2D0;transition:all .3s}
+  .step.done .dot{background:rgba(52,199,123,.16);color:var(--green)}
+  .step.active .dot{background:rgba(76,125,255,.2);color:#9DB8FF}
+  .txt{flex:1;min-width:0}
+  .t{font-size:15.5px;font-weight:650;margin:0 0 3px}
+  .d{font-size:13px;color:var(--sub);margin:0}
+  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:99px;margin-left:7px;
+       vertical-align:middle;font-weight:600}
+  .tag.must{background:rgba(76,125,255,.16);color:#9DB8FF}
+  .tag.opt{background:rgba(154,168,189,.14);color:var(--sub)}
+  .act{margin-top:13px;display:flex;gap:9px;flex-wrap:wrap}
+  button{border:0;border-radius:11px;padding:12px 16px;font-size:14.5px;font-weight:650;
+         background:var(--blue);color:#fff;cursor:pointer;flex:1 1 140px;min-width:0;max-width:100%;
+         word-break:break-word;transition:transform .1s,opacity .2s}
+  button:active{transform:scale(.98)}
+  button.ghost{background:#26324A;color:#C7D4E8;flex:0 1 auto;min-width:0;max-width:100%;
+               font-weight:550;font-size:13.5px;padding:12px 14px}
+  button.mini{flex:0 1 auto;min-width:0;max-width:100%;padding:9px 14px;font-size:13px;
+              background:rgba(76,125,255,.14);color:#9DB8FF}
+  button[disabled]{opacity:.45;cursor:default}
+  .ok-line{display:none;color:var(--green);font-size:13.5px;font-weight:600;margin-top:11px}
+  .step.done .ok-line{display:block}
+  .step.done .act{display:none}
+  .cta{width:100%;border:0;border-radius:15px;padding:17px;font-size:17px;font-weight:700;
+       background:linear-gradient(135deg,#4C7DFF,#3A66E0);color:#fff;margin-top:8px;cursor:pointer;
+       box-shadow:0 8px 24px rgba(76,125,255,.28)}
+  .cta:active{transform:scale(.99)}
+  .cta[disabled]{background:#2A3A55;box-shadow:none;color:#8697B2}
+  .note{text-align:center;color:var(--dim);font-size:12px;margin:13px 0 0;line-height:1.7}
+  details{margin-top:20px;border-top:1px solid var(--line);padding-top:6px}
+  summary{color:var(--dim);font-size:12.5px;cursor:pointer;list-style:none;padding:8px 2px}
   summary::-webkit-details-marker{display:none}
-  summary::before{content:"▸ ";color:#5A6B85}
+  summary::before{content:"▸ ";}
   details[open] summary::before{content:"▾ "}
-  .steps{color:#A8B2C6;font-size:13px;padding-left:18px;margin:14px 0 0}
-  .steps li{margin:9px 0}
-  code{background:#0E1119;border:1px solid #2A3242;border-radius:6px;padding:2px 6px;
-       font-size:12px;color:#9EC1FF;word-break:break-all}
-  .foot{color:#5F6879;font-size:11px;text-align:center;margin-top:26px;line-height:1.8}
+  .adv{background:#0C121E;border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:8px}
+  .adv p{font-size:12px;color:var(--sub);margin:0 0 10px}
+  .adv .kv{font-size:12px;color:var(--dim);word-break:break-all;margin:6px 0}
+  .adv b{color:#9DB8FF;font-weight:600}
+  .adv button{font-size:12.5px;padding:9px 12px}
+  .adv input{width:100%;background:#0A0F1A;border:1px solid var(--line);border-radius:9px;
+             color:var(--tx);padding:9px 11px;font-size:13px;outline:none;margin-top:4px}
+  .busy{display:none;text-align:center;color:var(--sub);font-size:13px;margin:12px 0 0}
+  .busy.on{display:block}
 </style>
 </head>
 <body>
-  <h1>MausBot 本地版</h1>
-  <div class="sub">手机上直接用的多智能体聊天客户端 · 数据只留在本机</div>
-
-  <div class="card">
-    <div class="status"><span class="dot" id="dot"></span><span id="statusText">正在检测本地服务…</span></div>
-    <p class="hint" id="hintText">第一次打开需要先启动一次后台服务。点下面的按钮，等几秒就会自动进入聊天界面。</p>
-    <button id="btnStart" onclick="MausBot.startService()">一键启动并进入</button>
-    <div class="row">
-      <button class="ghost" onclick="MausBot.recheck()">重新检测</button>
-      <button class="ghost" onclick="MausBot.openPermissionSettings()">去开启权限</button>
-    </div>
-    <div class="row">
-      <button class="ghost" onclick="MausBot.copyCommand()">复制启动命令（手动兜底）</button>
-    </div>
+  <div class="hero">
+    <div class="logo">🐭</div>
+    <h1>快好了，跟着做几步</h1>
+    <p class="lead">每一步点一下「允许」就行。做完自动进聊天，以后打开直接用，不用再设置。</p>
   </div>
 
-  <div class="card">
-    <div style="font-size:14px;font-weight:600;margin-bottom:4px">服务端口</div>
-    <div class="hint" style="margin:0 0 10px">默认 8799，一般不用改。若你在 Termux 里用了别的端口，在这里同步修改。</div>
-    <div class="row">
-      <input id="portInput" type="number" inputmode="numeric" value="8799">
-      <button class="ghost" style="flex:none;width:96px" onclick="savePort()">保存并重连</button>
-    </div>
+  <div class="progress-wrap">
+    <div class="progress-top"><span id="pLabel">正在检查…</span><span id="pCount"></span></div>
+    <div class="bar"><i id="pBar"></i></div>
   </div>
+
+  <div class="list" id="list">
+
+    <div class="step" id="s1">
+      <div class="row">
+        <div class="dot" id="d1">1</div>
+        <div class="txt">
+          <p class="t">允许自动启动<span class="tag must">必需</span></p>
+          <p class="d" id="t1">让 MausBot 能自己叫醒后台服务。会弹一个系统的「允许」框，点一下允许就好。</p>
+        </div>
+      </div>
+      <div class="act"><button id="b1" onclick="MausBot.allowAutoStart()">点一下允许</button></div>
+      <div class="ok-line">✓ 已允许</div>
+    </div>
+
+    <div class="step" id="s2">
+      <div class="row">
+        <div class="dot" id="d2">2</div>
+        <div class="txt">
+          <p class="t">连一下 Shizuku<span class="tag opt">推荐</span></p>
+          <p class="d" id="t2">你装的那个「十足酷」。连上之后，权限它能帮你自动开好；不连也能用。</p>
+        </div>
+      </div>
+      <div class="act">
+        <button id="b2" onclick="MausBot.connectShizuku()">连接</button>
+        <button class="ghost" onclick="MausBot.skipShizuku()">跳过</button>
+      </div>
+      <div class="ok-line" id="o2">✓ 已连接</div>
+    </div>
+
+    <div class="step" id="s3">
+      <div class="row">
+        <div class="dot" id="d3">3</div>
+        <div class="txt">
+          <p class="t">保持后台运行<span class="tag opt">建议</span></p>
+          <p class="d" id="t3">告诉手机别在锁屏后把服务关掉。跳到系统设置，选「允许」再回来。</p>
+        </div>
+      </div>
+      <div class="act">
+        <button onclick="MausBot.keepAlive()">去设置</button>
+        <button class="ghost" onclick="MausBot.skipBattery()">先跳过</button>
+      </div>
+      <div class="ok-line">✓ 已设置</div>
+    </div>
+
+    <div class="step" id="s4">
+      <div class="row">
+        <div class="dot" id="d4">4</div>
+        <div class="txt">
+          <p class="t">装好并启动<span class="tag must">必需</span></p>
+          <p class="d" id="t4">第一次要准备一下运行环境。点下面大按钮，剩下的我来做。</p>
+        </div>
+      </div>
+      <div class="act"><button class="mini" onclick="MausBot.prepareAndStart()">一键启动</button></div>
+      <div class="ok-line">✓ 服务已就绪</div>
+    </div>
+
+  </div>
+
+  <!-- 一次性准备卡片：仅当检测到环境未就绪时出现。用大白话引导，不把命令摆到台面上 -->
+  <div id="pasteCard" style="display:none;background:linear-gradient(135deg,#1B2A4A,#172038);
+       border:1px solid #3C5AA8;border-radius:18px;padding:18px;margin:6px 0 14px">
+    <div style="font-size:15.5px;font-weight:700;margin-bottom:6px">还差最后一次：帮我在 Termux 里粘一下</div>
+    <div style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.75">
+      这是安卓系统的规定，所有这类软件都要做一次，<b style="color:#C7D4E8">做完以后再也不用管</b>。<br>
+      ① 点下面蓝色按钮（我会复制好并打开 Termux）<br>
+      ② 在打开的黑色窗口里 <b style="color:#C7D4E8">长按 → 粘贴</b><br>
+      ③ 按一下 <b style="color:#C7D4E8">回车</b>，等它自己跑完（首次约几分钟）<br>
+      ④ 回到这里，会自动进入聊天
+    </div>
+    <button onclick="MausBot.copyAndOpenTermux()" style="width:100%">复制并打开 Termux</button>
+    <div style="font-size:11.5px;color:var(--dim);margin-top:10px" id="pasteCmd" hidden></div>
+  </div>
+
+  <button class="cta" id="cta" onclick="next()">正在检查…</button>
+  <div class="busy" id="busy">正在启动，请稍候，会自动进入…</div>
+  <p class="note" id="note">所有数据只留在这台手机本机，不上传、不联网也能聊。</p>
 
   <details>
-    <summary>启动不了？看这里（只需设置一次）</summary>
-    <ol class="steps">
-      <li>确认手机装的是 <b>GitHub / F-Droid 版 Termux</b>，不是已停更的 Google Play 版。</li>
-      <li>在 Termux 里执行过一次安装脚本 <code>bash install.sh</code>（本项目的 termux 目录里有）。它会装好 Node、openmausbot 和安卓专用补丁。</li>
-      <li>允许外部调用：在 Termux 里执行 <code>echo 'allow-external-apps = true' &gt;&gt; ~/.termux/termux.properties</code>，然后<b>彻底关掉 Termux 再重开一次</b>。</li>
-      <li>给本 App 授权：点上面的「去开启权限」，在「其他权限 / 附加权限」里打开「在 Termux 环境中运行命令」，返回本页点「重新检测」。</li>
-      <li>如果仍不行，点「复制启动命令」，自己打开 Termux 粘贴回车，再回到这里点「重新检测」。</li>
-      <li>后台保活：锁住 Termux 的最近任务卡片、把 Termux 省电策略设为「无限制」、允许自启动；长时间使用建议插电。</li>
-    </ol>
-    <p class="hint">所有服务只监听 127.0.0.1（手机本机），不会连到公网，也不需要联网。</p>
+    <summary>懂技术？看这里（命令行 / 端口 / 排查）</summary>
+    <div class="adv">
+      <p>普通使用完全不用看这里。下面是给想自己折腾的人留的。</p>
+      <div class="kv"><b>服务地址</b>：<span id="aHost">http://127.0.0.1:8799/</span></div>
+      <div class="kv"><b>状态</b>：<span id="aStatus">—</span></div>
+      <div class="kv" style="margin-top:12px"><b>服务端口</b></div>
+      <input id="portInput" type="number" inputmode="numeric" value="8799">
+      <div class="act" style="margin-top:9px">
+        <button class="ghost" onclick="savePort()">保存并重连</button>
+        <button class="ghost" onclick="MausBot.copyBootstrap()">复制一次性命令</button>
+        <button class="ghost" onclick="MausBot.openTermux()">打开 Termux</button>
+      </div>
+      <div class="act" style="margin-top:9px">
+        <button class="ghost" onclick="MausBot.openPermissionSettings()">系统权限页</button>
+        <button class="ghost" onclick="MausBot.recheck()">重新检测</button>
+      </div>
+      <p style="margin-top:14px;color:var(--dim)">一次性准备命令很长（已压缩内联全部补丁，不依赖任何网盘），请用上面的「复制一次性命令」按钮复制，不要在界面里手抄。</p>
+      <p style="margin-top:12px;color:var(--dim)">服务端与安卓硬链接兼容补丁见仓库 termux/ 目录（Apache-2.0）。</p>
+    </div>
   </details>
 
-  <div class="foot">
-    本应用是 OpenMausBot 的非官方安卓外壳 · 上游项目 Apache-2.0<br>
-    界面由手机本机的 OpenMausBot 服务提供
-  </div>
-
 <script>
-function ui(state, text, hint){
-  var d=document.getElementById('dot');
-  d.className='dot'+(state==='ok'?' ok':state==='err'?' err':'');
-  document.getElementById('statusText').textContent=text;
-  if(hint!==undefined) document.getElementById('hintText').textContent=hint;
+var S = {};
+var busy = false;
+
+function q(id){ return document.getElementById(id); }
+
+function mark(id, state){
+  var el = q('s'+id);
+  el.classList.remove('active','done');
+  if(state) el.classList.add(state);
+  if(state==='done') q('d'+id).textContent = '✓';
+  else q('d'+id).textContent = String(id);
 }
-function setBusy(b){
-  var btn=document.getElementById('btnStart');
-  btn.disabled=b; btn.style.opacity=b?'.6':'1';
-  btn.textContent=b?'正在启动，请稍候…':'一键启动并进入';
+
+function setStep4Text(){
+  // 依据是否有 root 级 Shizuku，给出不同的、不含代码的说明。
+  // 不做「零操作」的绝对承诺：allow-external-apps 是 Termux 官方门槛，无 root 时绕不过。
+  if(S.rootMode){
+    q('t4').textContent = '已连上最高权限，点一下就能自动装好并启动；若手机仍要求在 Termux 里确认一次，照蓝色卡片做即可。';
+  }else{
+    q('t4').textContent = '第一次要准备一下运行环境。点下面大按钮，能自动的部分我全自动做；按提示在 Termux 里粘一次就永久搞定。';
+  }
 }
-function setPort(p){ document.getElementById('portInput').value=p; }
-function savePort(){
-  var p=(document.getElementById('portInput').value||'8799').trim();
-  if(MausBot && MausBot.setPort){ MausBot.setPort(p); }
+
+function render(){
+  var termuxOk = S.termuxInstalled !== false;
+  // Termux 没装时，第 1 步先引导安装，别让用户去点一个注定失败的授权框。
+  if(!termuxOk){
+    q('t1').textContent = '还没检测到 Termux。点「去安装」装好它（选 GitHub / F-Droid 版），回来会自动打勾。';
+    var b1 = q('b1'); if(b1){ b1.textContent = '去安装 Termux'; b1.onclick = function(){ MausBot.installTermux(); }; }
+  }
+  var done1 = !!S.perm;
+  var done2 = !!S.shizukuGranted || !!S.shizukuSkipped;
+  var done3 = !!S.battery || !!S.batterySkipped;
+  var done4 = !!S.service;
+
+  mark(1, done1?'done':'active');
+  mark(2, done2?'done':(done1?'active':''));
+  mark(3, done3?'done':(done1?'active':''));
+  mark(4, done4?'done':(done1?'active':''));
+
+  // 第 2 步按 Shizuku 实际状态给出人话提示 + 正确按钮
+  if(!done2){
+    if(S.shizukuInstalled && !S.shizukuRunning){
+      q('t2').textContent = '检测到你装了 Shizuku，但它还没启动。点「连接」打开它，按它的提示启动一下再回来。';
+      q('b2').textContent = '打开 Shizuku';
+    }else if(S.shizukuInstalled && S.shizukuRunning && !S.shizukuGranted){
+      q('t2').textContent = 'Shizuku 已在运行，还差最后一步：点「允许」，把系统能力借给 MausBot。';
+      q('b2').textContent = '允许';
+    }else if(!S.shizukuInstalled){
+      q('t2').textContent = '没装 Shizuku 也没关系，点「跳过」直接往下走。想更省事可以点「连接」去装。';
+      q('b2').textContent = '去安装';
+    }
+  }
+  if(done2 && S.shizukuGranted) q('o2').textContent = S.rootMode?'✓ 已连接（最高权限）':'✓ 已连接';
+
+  setStep4Text();
+
+  var doneCount = [done1,done2,done3,done4].filter(Boolean).length;
+  q('pCount').textContent = doneCount + ' / 4';
+  q('pBar').style.width = (doneCount*25) + '%';
+
+  var cta = q('cta');
+  if(done4){
+    q('pLabel').textContent = '全部就绪，正在进入…';
+    cta.textContent = '正在进入聊天…'; cta.disabled = true;
+  }else if(!termuxOk){
+    q('pLabel').textContent = '先装一下 Termux';
+    cta.textContent = '① 去安装 Termux'; cta.disabled = false; cta.dataset.act='0';
+  }else if(!done1){
+    q('pLabel').textContent = '还差一步：允许自动启动';
+    cta.textContent = '① 点一下允许'; cta.disabled = false; cta.dataset.act='1';
+  }else if(!done4){
+    q('pLabel').textContent = '权限好了，准备启动';
+    cta.textContent = '一键启动并进入'; cta.disabled = false; cta.dataset.act='4';
+  }
+
+  q('busy').className = 'busy' + (S.busy?' on':'');
+  q('aStatus').textContent = JSON.stringify(S);
+  q('aHost').textContent = 'http://127.0.0.1:' + (S.port||'8799') + '/';
+  if(S.port && q('portInput').value != S.port) q('portInput').value = S.port;
+  busy = !!S.busy;
+  if(busy) cta.disabled = true;
 }
-function setState(s){ ui(s.state,s.text,s.hint); }
-// Android 侧通过 evaluateJavascript 调用 setState / setBusy / setPort
+
+function next(){
+  if(busy) return;
+  var a = q('cta').dataset.act;
+  if(a==='0') MausBot.installTermux();
+  else if(a==='1') MausBot.allowAutoStart();
+  else if(a==='4') MausBot.prepareAndStart();
+  else MausBot.recheck();
+}
+
+function refresh(){
+  try{
+    var raw = MausBot.getStatus();
+    if(raw) { S = JSON.parse(raw); render(); }
+  }catch(e){}
+}
+
+function setBusy(b){ S.busy = b; render(); }
+function setBusyText(t){ var e=q('busy'); if(e){ e.textContent=t; e.className='busy on'; } }
+function setNotice(t){ var e=q('note'); if(e) e.textContent=t; }
+function setPasteGuide(on, cmd){
+  var el = q('pasteCard'); if(!el) return;
+  el.style.display = on ? 'block' : 'none';
+  if(on && cmd) q('pasteCmd').textContent = cmd;
+}
+function setPort(p){ if(q('portInput')) q('portInput').value = p; }
+function savePort(){ var p=(q('portInput').value||'8799').trim(); if(MausBot&&MausBot.setPort) MausBot.setPort(p); }
+
+// Android 侧在页面加载完成 / onResume / 权限回调后调用 refresh()
+document.addEventListener('DOMContentLoaded', refresh);
+refresh();
 </script>
 </body>
 </html>

@@ -10,8 +10,8 @@ android {
         applicationId 'com.zjh1934.mausbot.local'
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName '0.9.0'
+        versionCode 2
+        versionName '2.0.0'
     }
 
     buildTypes {
@@ -38,7 +38,15 @@ android {
     }
 }
 
-// 刻意不引入 AndroidX / 任何远程依赖：全部使用 Android framework 原生 API，
-// 最大程度降低 CI 编译失败概率。
 dependencies {
+    // Shizuku：让本 App 能像那些「AI 操控手机」开源项目一样，
+    // 由用户点一次「允许」后拿到系统级（shell / root）能力，用于自动授权。
+    // 版本 13.1.5 已实测可从 Maven Central 解析，类签名已核对。
+    def shizuku_version = '13.1.5'
+    implementation "dev.rikka.shizuku:api:$shizuku_version"
+    implementation "dev.rikka.shizuku:provider:$shizuku_version"
+
+    // 调用系统隐藏 API（IPackageManager.grantRuntimePermission）时豁免 P+ 限制。
+    // 纯 Java、8KB；已实测 Maven Central 可拉取。失败时代码会静默回落到系统弹框。
+    implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:4.3'
 }
