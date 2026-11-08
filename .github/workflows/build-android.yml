@@ -28,14 +28,23 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: 装 Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: 确认 SDK 组件
+      # ubuntu-latest 预装了 Android SDK，不需要 setup-android action。
+      # 该 action 会去装已下架的 "tools" 包，在新版 SDK 上必定失败。
+      - name: 准备 Android SDK 组件
         run: |
-          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls "$ANDROID_HOME/build-tools/34.0.0/aapt2" "$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          set -e
+          if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "${ANDROID_HOME:-/none}" ]; then
+            ANDROID_HOME=/usr/local/lib/android/sdk
+          fi
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          SDKM=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -1)
+          [ -n "$SDKM" ] || { echo "找不到 sdkmanager"; find "$ANDROID_HOME" -maxdepth 3 -type d; exit 1; }
+          echo "sdkmanager: $SDKM"
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          "$SDKM" --install "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
+          echo "== 已装组件 =="
+          ls "$ANDROID_HOME/build-tools/34.0.0/aapt2" "$ANDROID_HOME/build-tools/34.0.0/apksigner" "$ANDROID_HOME/build-tools/34.0.0/aapt"
 
       - name: Gradle 缓存
         uses: gradle/actions/setup-gradle@v3
