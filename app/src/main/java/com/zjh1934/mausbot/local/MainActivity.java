@@ -112,6 +112,10 @@ public class MainActivity extends Activity {
         probeOnce(ok -> {
             if (ok) {
                 loadApp();
+            } else if (!termuxPermissionGranted()) {
+                // Termux 的 RUN_COMMAND 权限必须由用户在系统设置里手动授予一次。
+                setGuideState("err", "需要先给一次权限",
+                        "请点「去开启权限」，在「其他权限」里打开「在 Termux 环境中运行命令」，然后返回本页。");
             } else {
                 // 点开图标即自动尝试拉起 Termux 服务，用户无需输入任何命令。
                 boolean launched = launchTermux();
@@ -398,12 +402,32 @@ public class MainActivity extends Activity {
     }
 
     private Intent termuxIntent() {
+        // 常量值已对照 Termux 官方 TermuxConstants.java 校准：
+        //   ACTION_RUN_COMMAND = "com.termux.RUN_COMMAND"
+        //   EXTRA_COMMAND_PATH = "com.termux.RUN_COMMAND_PATH"
+        //   EXTRA_WORKDIR      = "com.termux.RUN_COMMAND_WORKDIR"
+        //   EXTRA_BACKGROUND   = "com.termux.RUN_COMMAND_BACKGROUND"
+        //   RunCommandService  = "com.termux.app.RunCommandService"
         Intent i = new Intent("com.termux.RUN_COMMAND");
-        i.setPackage("com.termux");
+        i.setClassName("com.termux", "com.termux.app.RunCommandService");
         i.putExtra("com.termux.RUN_COMMAND_PATH", TERMUX_SCRIPT);
         i.putExtra("com.termux.RUN_COMMAND_WORKDIR", TERMUX_HOME);
         i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true);
         return i;
+    }
+
+    /** 权限是否已授予。Termux 的 RUN_COMMAND 是 dangerous 权限，需用户手动开一次。 */
+    private boolean termuxPermissionGranted() {
+        return checkSelfPermission("com.termux.permission.RUN_COMMAND")
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /** 打开本 App 的系统权限页，引导用户开启「在 Termux 中运行命令」。 */
+    private void openAppPermissionSettings() {
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Exception ignored) {}
     }
 
     private final Runnable pollTick = new Runnable() {
@@ -539,8 +563,18 @@ public class MainActivity extends Activity {
     private class JsBridge {
 
         @JavascriptInterface
+        public void openPermissionSettings() {
+            ui.post(() -> openAppPermissionSettings());
+        }
+
+        @JavascriptInterface
         public void startService() {
             ui.post(() -> {
+                if (!termuxPermissionGranted()) {
+                    setGuideState("err", "需要先给一次权限",
+                            "请点「去开启权限」，在「其他权限」里打开「在 Termux 环境中运行命令」，然后返回本页。");
+                    return;
+                }
                 boolean launched = launchTermux();
                 if (!launched) {
                     setGuideState("err", "无法自动启动 Termux",

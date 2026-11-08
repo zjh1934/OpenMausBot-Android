@@ -47,7 +47,10 @@
     <button id="btnStart" onclick="MausBot.startService()">一键启动并进入</button>
     <div class="row">
       <button class="ghost" onclick="MausBot.recheck()">重新检测</button>
-      <button class="ghost" onclick="MausBot.copyCommand()">复制启动命令</button>
+      <button class="ghost" onclick="MausBot.openPermissionSettings()">去开启权限</button>
+    </div>
+    <div class="row">
+      <button class="ghost" onclick="MausBot.copyCommand()">复制启动命令（手动兜底）</button>
     </div>
   </div>
 
@@ -64,9 +67,10 @@
     <summary>启动不了？看这里（只需设置一次）</summary>
     <ol class="steps">
       <li>确认手机装的是 <b>GitHub / F-Droid 版 Termux</b>，不是已停更的 Google Play 版。</li>
-      <li>在 Termux 里执行过一次安装脚本 <code>sh install.sh</code>（本项目的 termux 目录里有）。它会装好 Node、openmausbot 和安卓专用补丁。</li>
-      <li>允许本 App 调用 Termux：在 Termux 里执行 <code>echo 'allow-external-apps = true' &gt;&gt; ~/.termux/termux.properties</code>，然后彻底关掉 Termux 再重开一次。</li>
-      <li>如果仍不行，点上面的「复制启动命令」，自己打开 Termux 粘贴回车，再回到这里点「重新检测」。</li>
+      <li>在 Termux 里执行过一次安装脚本 <code>bash install.sh</code>（本项目的 termux 目录里有）。它会装好 Node、openmausbot 和安卓专用补丁。</li>
+      <li>允许外部调用：在 Termux 里执行 <code>echo 'allow-external-apps = true' &gt;&gt; ~/.termux/termux.properties</code>，然后<b>彻底关掉 Termux 再重开一次</b>。</li>
+      <li>给本 App 授权：点上面的「去开启权限」，在「其他权限 / 附加权限」里打开「在 Termux 环境中运行命令」，返回本页点「重新检测」。</li>
+      <li>如果仍不行，点「复制启动命令」，自己打开 Termux 粘贴回车，再回到这里点「重新检测」。</li>
       <li>后台保活：锁住 Termux 的最近任务卡片、把 Termux 省电策略设为「无限制」、允许自启动；长时间使用建议插电。</li>
     </ol>
     <p class="hint">所有服务只监听 127.0.0.1（手机本机），不会连到公网，也不需要联网。</p>
