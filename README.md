@@ -42,7 +42,8 @@
 > **关于那一次粘贴**：`allow-external-apps` 是 Termux 官方刻意设的门槛
 > （源码里 termux.properties 被强制只读、所有执行入口都先卡这道检查），
 > 无 root 时谁都绕不过，那些 AI 手机 App 也一样。App 已把它压到"自动复制 + 自动打开 +
-> 粘贴一次"，**做完永久全自动**。Shizuku 为 root 模式时通常可完全免粘贴。
+> 粘贴一次"，**做完永久全自动**。Shizuku 为 root 模式时也只是「权限自动开好、少弹框」，
+> 首次环境准备仍建议照卡片做一次（Shizuku 13.1.5 已移除 `newProcess`，App 无法静默写 Termux 私有目录）。
 
 不懂技术直接看 [`docs/使用说明.md`](docs/使用说明.md)。
 
